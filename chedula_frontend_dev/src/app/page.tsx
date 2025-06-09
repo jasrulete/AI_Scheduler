@@ -6,6 +6,7 @@ import { Testimonials } from "@/components/landing/Testimonials";
 import { Pricing } from "@/components/landing/Pricing";
 import { Footer } from "@/components/common/footer";
 import { Calendar } from "@/components/landing/Calendar";
+import TestConnection from './test-connection'
 
 export default function Home() {
   return (
@@ -17,6 +18,7 @@ export default function Home() {
         <HowItWorks />
         <Testimonials />
         <Pricing />
+        <TestConnection />
       </main>
       <Footer />
     </div>

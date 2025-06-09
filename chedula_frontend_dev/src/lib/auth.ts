@@ -3,16 +3,19 @@
  * Single source of truth for all Supabase authentication
  */
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@supabase/supabase-js'
 import type { User, Session } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
 // SINGLE Supabase client instance - this is the only one that should exist
-let supabaseClient: ReturnType<typeof createClientComponentClient<Database>> | null = null
+let supabaseClient: ReturnType<typeof createClient<Database>> | null = null
 
 export function getSupabaseClient() {
   if (!supabaseClient) {
-    supabaseClient = createClientComponentClient<Database>()
+    supabaseClient = createClient<Database>(supabaseUrl, supabaseAnonKey)
   }
   return supabaseClient
 }
@@ -274,4 +277,33 @@ export const authHelpers = {
     const session = await getCurrentSession()
     return { session, error: null }
   },
+}
+
+export const getSession = async () => {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error) throw error
+    return session
+  } catch (error) {
+    console.error('Error getting session:', error)
+    return null
+  }
+}
+
+export const getToken = async () => {
+  try {
+    const session = await getSession()
+    return session?.access_token
+  } catch (error) {
+    console.error('Error getting token:', error)
+    return null
+  }
+}
+
+export const handleAuthError = (error: any) => {
+  console.error('Auth error:', error)
+  if (error.message === 'Invalid login credentials') {
+    return 'Invalid email or password'
+  }
+  return 'An error occurred during authentication'
 } 

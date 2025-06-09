@@ -41,6 +41,8 @@ export class AIAssistantWebSocket {
       pingInterval: 30000,
       ...config
     }
+    // Temporarily disable WebSocket connection
+    console.log('WebSocket functionality is currently disabled. Backend WebSocket support is not yet implemented.');
   }
 
   connect(): Promise<void> {
@@ -226,14 +228,11 @@ export class AIAssistantWebSocket {
 
 // Factory function to create WebSocket instance
 export function createAIAssistantWebSocket(): AIAssistantWebSocket {
-  const wsUrl = process.env.NODE_ENV === 'production'
-    ? 'wss://your-backend-domain.com/ws/chat/'
-    : 'ws://localhost:8000/ws/chat/'
-
+  // Return a mock WebSocket instance that doesn't try to connect
   return new AIAssistantWebSocket({
-    url: wsUrl,
+    url: 'ws://localhost:8000/ws/chat/',
     reconnectDelay: 3000,
     maxReconnectAttempts: 5,
-    pingInterval: 30000
-  })
+    pingInterval: 30000,
+  });
 } 

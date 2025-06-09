@@ -121,7 +121,6 @@ export function ChatInterface({ onCalendarUpdate }: ChatInterfaceProps) {
       setIsLoading(true)
       
       // Only reset session state if this is a completely new session (no existing messages)
-      // This allows the session to persist when navigating between pages
       if (messages.length === 0) {
         console.log('Starting fresh AI chat session...')
         setActionFeedbacks([])
@@ -142,252 +141,69 @@ export function ChatInterface({ onCalendarUpdate }: ChatInterfaceProps) {
       const ws = createAIAssistantWebSocket()
       wsRef.current = ws
 
-      // Set up event listeners
-      ws.on('connection.established', () => {
-        console.log('WebSocket connected, authenticating...')
-        ws.authenticate(token)
-      })
-
-      ws.on('authentication.success', (data) => {
-        console.log('WebSocket authenticated successfully:', data)
-        setIsConnected(true)
-        setIsLoading(false)
-        // Don't load chat history - start fresh session
-        console.log('Ready for new chat session')
-      })
-
-      ws.on('chat.history', (data) => {
-        console.log('Received chat history:', data)
-        // Only set messages if we actually requested history
-        if (data.messages && data.messages.length > 0) {
-          setMessages(data.messages)
-        }
-      })
-
-      ws.on('chat.response', (data) => {
-        console.log('Received AI response:', data)
-        
-        // Add AI message
-        const aiMessage: ChatMessage = {
-          id: data.ai_message_id || Date.now().toString(),
-          sender_type: 'ai',
-          content: data.message,
-          timestamp: data.timestamp,
-          status: 'processed',
-          metadata: data.metadata
-        }
-        
-        setMessages(prev => [...prev, aiMessage])
-        setIsLoading(false)
-        setIsTyping(false)
-        
-        // Trigger global data refresh and calendar callback
-        refreshAll()
-        if (onCalendarUpdate) {
-          onCalendarUpdate()
-        }
-      })
-
-      ws.on('ai.typing', (data) => {
-        setIsTyping(data.status)
-      })
-
-      ws.on('action.feedback', (data) => {
-        const actionId = data.action_id || Date.now().toString()
-        
-        // Skip if we've already shown feedback for this action
-        setShownActionIds(prev => {
-          if (prev.has(actionId)) {
-            return prev
-          }
-          
-          const feedback: ActionFeedback = {
-            action_id: actionId,
-            status: data.status || 'completed',
-            message: data.message || 'Action completed',
-            result: data.result
-          }
-          setActionFeedbacks(feedbackPrev => [...feedbackPrev, feedback])
-          
-          return new Set(Array.from(prev).concat([actionId]))
-        })
-      })
-
-      // Listen for AI actions completion
-      ws.on('ai.action.completed', (action) => {
-        console.log('AI action completed:', action)
-        
-        const actionId = action.action_id
-        
-        // Skip if we've already shown feedback for this action
-        setShownActionIds(prev => {
-          if (prev.has(actionId)) {
-            // Still trigger data refresh even if we skip the feedback
-            if (action.action_type === 'create_booking' || action.action_type === 'update_booking' || action.action_type === 'cancel_booking') {
-              refreshBookings()
-              refreshCalendar()
-            } else if (action.action_type === 'create_customer' || action.action_type === 'update_customer') {
-              refreshCustomers()
-            } else if (action.action_type === 'create_service' || action.action_type === 'update_service') {
-              refreshServices()
-            }
-            
-            if (onCalendarUpdate && ['create_booking', 'update_booking', 'cancel_booking'].includes(action.action_type)) {
-              onCalendarUpdate()
-            }
-            
-            return prev
-          }
-          
-          let actionMessage = 'Action completed successfully'
-          if (action.action_type === 'create_booking') {
-            actionMessage = `✅ Booking created: ${action.result?.title || 'New booking'}`
-            refreshBookings()
-            refreshCalendar()
-          } else if (action.action_type === 'update_booking') {
-            actionMessage = `✅ Booking updated: ${action.result?.title || 'Booking'}`
-            refreshBookings()
-            refreshCalendar()
-          } else if (action.action_type === 'cancel_booking') {
-            actionMessage = `❌ Booking cancelled: ${action.result?.title || 'Booking'}`
-            refreshBookings()
-            refreshCalendar()
-          } else if (action.action_type === 'create_customer') {
-            actionMessage = `👤 Customer created: ${action.result?.full_name || action.result?.first_name || 'New customer'}`
-            refreshCustomers()
-          } else if (action.action_type === 'update_customer') {
-            actionMessage = `👤 Customer updated: ${action.result?.full_name || action.result?.first_name || 'Customer'}`
-            refreshCustomers()
-          } else if (action.action_type === 'create_service') {
-            actionMessage = `🔧 Service created: ${action.result?.name || 'New service'}`
-            refreshServices()
-          } else if (action.action_type === 'update_service') {
-            actionMessage = `🔧 Service updated: ${action.result?.name || 'Service'}`
-            refreshServices()
-          }
-
-          const feedback: ActionFeedback = {
-            action_id: actionId,
-            status: 'completed',
-            message: actionMessage,
-            result: action.result
-          }
-          setActionFeedbacks(feedbackPrev => [...feedbackPrev, feedback])
-          
-          // Call calendar update callback for booking-related actions
-          if (onCalendarUpdate && ['create_booking', 'update_booking', 'cancel_booking'].includes(action.action_type)) {
-            onCalendarUpdate()
-          }
-          
-          return new Set(Array.from(prev).concat([actionId]))
-        })
-      })
-
-      // Listen for AI action failures
-      ws.on('ai.action.failed', (action) => {
-        console.error('AI action failed:', action)
-        
-        const actionId = action.action_id
-        
-        // Skip if we've already shown feedback for this action
-        setShownActionIds(prev => {
-          if (prev.has(actionId)) {
-            return prev
-          }
-          
-          const feedback: ActionFeedback = {
-            action_id: actionId,
-            status: 'failed',
-            message: `❌ Failed to ${action.action_type.replace('_', ' ')}: ${action.error}`,
-            result: null
-          }
-          setActionFeedbacks(feedbackPrev => [...feedbackPrev, feedback])
-          
-          return new Set(Array.from(prev).concat([actionId]))
-        })
-      })
-
-      ws.on('error', (data) => {
-        console.error('WebSocket error:', data)
-        const errorMessage: ChatMessage = {
-          id: Date.now().toString(),
-          sender_type: 'system',
-          content: `Error: ${data.error}`,
-          timestamp: new Date().toISOString(),
-          status: 'failed'
-        }
-        setMessages(prev => [...prev, errorMessage])
-        setIsLoading(false)
-        setIsTyping(false)
-      })
-
-      ws.on('connection.closed', () => {
-        console.log('WebSocket connection closed')
-        setIsConnected(false)
-      })
-
-      ws.on('connection.error', (data) => {
-        console.error('WebSocket connection error:', data)
-        setIsConnected(false)
-      })
-
-      // Connect to WebSocket
-      await ws.connect()
-
-    } catch (error) {
-      console.error('Error initializing chat:', error)
-      setIsConnected(false)
-      
-      // Add error message
-      const errorMessage: ChatMessage = {
+      // Add a message indicating WebSocket is disabled
+      setMessages(prev => [...prev, {
         id: Date.now().toString(),
         sender_type: 'system',
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to connect to AI Assistant'}`,
+        content: 'Chat functionality is currently disabled. WebSocket support is not yet implemented.',
         timestamp: new Date().toISOString(),
-        status: 'failed'
-      }
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
-  }, [user, getToken, authLoading, onCalendarUpdate, refreshAll, refreshCustomers, refreshServices, refreshBookings, refreshCalendar])
+        status: 'processed'
+      }]);
 
-  // Send message via WebSocket
+      setIsLoading(false)
+      setIsConnected(false)
+
+    } catch (error) {
+      console.error('Failed to initialize chat:', error)
+      setIsLoading(false)
+      setIsConnected(false)
+      
+      // Add error message to chat
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        sender_type: 'system',
+        content: 'Failed to initialize chat. Chat functionality is currently disabled.',
+        timestamp: new Date().toISOString(),
+        status: 'processed'
+      }])
+    }
+  }, [user, authLoading, messages.length, getToken])
+
   const sendMessage = async () => {
-    if (!inputMessage.trim() || isLoading || !user || !wsRef.current || !isConnected) return
+    if (!inputMessage.trim() || !wsRef.current) {
+      // Add message indicating chat is disabled
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        sender_type: 'system',
+        content: 'Chat functionality is currently disabled. WebSocket support is not yet implemented.',
+        timestamp: new Date().toISOString(),
+        status: 'processed'
+      }]);
+      return;
+    }
 
     const messageContent = inputMessage.trim()
-    setInputMessage("")
-    setIsLoading(true)
+    setInputMessage('')
 
-    // Add user message to UI immediately
+    // Add user message to chat
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       sender_type: 'user',
       content: messageContent,
       timestamp: new Date().toISOString(),
-      status: 'sent'
+      status: 'processed'
     }
     setMessages(prev => [...prev, userMessage])
 
-    try {
-      // Send message via WebSocket
-      wsRef.current.sendMessage(messageContent)
-      
-    } catch (error) {
-      console.error('Error sending message:', error)
-      
-      // Add error message
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        sender_type: 'system',
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to send message'}`,
-        timestamp: new Date().toISOString(),
-        status: 'failed'
-      }
-      setMessages(prev => [...prev, errorMessage])
-      setIsLoading(false)
+    // Add system message about disabled chat
+    const systemMessage: ChatMessage = {
+      id: (Date.now() + 1).toString(),
+      sender_type: 'system',
+      content: 'Chat functionality is currently disabled. WebSocket support is not yet implemented.',
+      timestamp: new Date().toISOString(),
+      status: 'processed'
     }
+    setMessages(prev => [...prev, systemMessage])
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
